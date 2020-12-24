@@ -281,7 +281,6 @@ module.exports=cfg=>{
         for(let [,cl] of clients) {
             await disconnect(cl,0);
         }
-
         socket.close(() => {
             events.emit("shutdown");
         });
