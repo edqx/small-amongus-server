@@ -1,0 +1,9 @@
+{
+  "name": "small-amongus-server",
+  "version": "1.0.0",
+  "main": "src/index.js",
+  "license": "MIT",
+  "scripts": {
+    "start": "node bin/serv.js"
+  }
+}
