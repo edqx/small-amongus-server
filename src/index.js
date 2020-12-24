@@ -84,7 +84,7 @@ module.exports=cfg=>{
         switch (tag) {
             case 0: {
                 let i = 0;
-                while (buf.readUInt8(i)>0x80&&i<4) i++;
+                while (buf.readUInt8(i)>=0x80&&i<4) i++;
                 if (i>=4)return;
                 const max_players = buf.readUInt8(i + 2);
                 const code = code2int(gen());
