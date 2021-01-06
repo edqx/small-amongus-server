@@ -2,6 +2,13 @@ This repository contains a very small, fully working, Among Us server. (~1.4kb w
 
 Strictly not recommended for use.
 
+`src/index.js` contains the source of the server with comments and proper indentation in order to make development quicker and to make it easier to understand what is happening.
+`src/index.min.js` contains a minified version of the source.
+`src/index.stripped.js` contains the source of the server without any comments and separated into lines based on each "step" of the program, although these would be on several lines in an actual server.
+
+If you are looking for a real server to use, I suggest the one that I work on at https://github.com/SkeldJS/SkeldJS.
+Other alternatives include NodePolus (https://github.com/NodePolus/NodePolus) and Impostor (https://github.com/Impostor/Impostor)
+
 Installation
 ============
 Prerequisites:
@@ -20,6 +27,8 @@ Step 2: Run the server
 Contribution
 ============
 If you are contributing to the project, keep in mind the goal of the project. Skip certain flows that an Among Us server might carry out if it does not affect the game in a major way. Also, use JavaScript tactics such as the logical operators (&&, ||) rather than using if statements, as these can reduce file size by a lot. Other size reduction techniques will be suggested if you are not sure.
+
+Only contribute to the main `index.js` file, as the other `index.min.js` and `index.stripped.js` aren't necessary.
 
 Also, do not focus on making the program secure or error-prone, and only support actual Among Us clients, even though other clients (e.g. programmable clients) may behave differently. The goal of the project is just for a working Among Us server, even if it may be extremely unstable and not suitable for use.
 
