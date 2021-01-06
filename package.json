@@ -4,6 +4,6 @@
   "main": "src/index.js",
   "license": "MIT",
   "scripts": {
-    "start": "node bin/serv.js"
+    "start": "node src/index.js"
   }
 }

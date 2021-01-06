@@ -1,289 +1,54 @@
-const {code2int} = require("./code");
-module.exports=cfg=>{
-    const socket = require("dgram").createSocket("udp4");
-    const events=new require("events")();
-    socket.bind(cfg.port, cfg.ip, () => {
-        events.emit("bind");
-    });
-    const clients = new Map;
-    const rooms = {};
-
-    let incr_clientid = 0;
-
-    // Socket 
-    const send=(buf,remote)=>new Promise(resolve=>socket.send(buf,remote.port,remote.address,resolve));
-    const disconnect=async(client,reason)=>(
-        client.disconnected=true,
-        client.room&&rem(client),
-        reason===null?send(Buffer.from("09","hex"),client.remote)
-        : await send(Buffer.from("09010000"+reason.toString(16).padStart(2,"0"), "hex"),client.remote)
-    );
-    const joinerr=(client,reason)=>(
-        write = Buffer.from("01000000040100000000","hex"),
-        write.writeUInt16BE(client.nonce,1),
-        write.writeInt32LE(reason,6),
-        send(write,client.remote)
-    );
-    const ack=(client,nonce)=>(
-        buf = Buffer.from("0a0000","hex"),
-        buf.writeUInt16BE(nonce, 1),
-        send(buf,client.remote)
-    );
-    const wpacked=(buf,val,offs=0)=>{
-        let i=0;
-        do {let b = val & 0xFF;
-            if (val>=0x80)b |= 0x80;
-            buf.writeUInt8(b,offs+i);
-            i++;
-            val >>= 7;} while (val > 0);
-        return i;
+"use strict";
+let s=require("dgram").createSocket("udp4"), // create socket
+	cl={},g={},B=Buffer,incr=0, // create data vars for clients, games, buffer alias and incrementing client ID respectively
+    v4p=_=>65+Math.floor(Math.random()*26), // create random uppercase char
+	co,ga,ba,b2,ar,b, // initialise vars
+	wi=i=>B.from([i,i>>8,i>>16,i>>24]), // write a 32 bit integer
+	pa=i=>{ar=[];do{b=i&0xff;i>=0x80&&(b|=0x80);ar.push(b);i>>>=7}while(i>0);return B.from(ar)}, // write a packed uint32
+    _pl=(c,t,bu)=>s.send((b2=B.from([,,,t,...bu]),
+		b2.writeUInt16LE(B.from(bu).byteLength,1),b2), // write payload length
+		c.r.port,c.r.address);
+s.on("message",(b,r)=>{
+    let f=r.address+r.port, // remote's formatted address:port
+        c=cl[f]||(cl[f]={r,i:++incr,id:false,d:false,g:0,f}), // create the client if it doesn't exist with { r: remote, i: clientid, id: identified, d: disconnected, g: game, f: formatted address }
+        send=b=>s.send(B.from(b),r.port,r.address), // send a packet to the client
+		l=_=>(ga=g[c.g])&&( // Does game exist?
+			ga.cl.splice(ga.cl.indexOf(c),1), // remove client from game
+			!ga.cl.length? // is the game now empty?
+				g[c.g]=0: // destroy game
+				(ga.h==c.i&&( // was the client the host?
+					ga.h=ga.cl[0].i)), // select a new host
+			ga.cl.forEach(cl=>_pl(cl,4,[...wi(c.g),...wi(c.i),...wi(g.h)]))), // send remove player with the new host to every other client
+        d=_=>(g[c.g]&&l(),send(B.from([9]))), // disconnect the client w/ a reason
+        pl=(t,bu)=>_pl(c,t,bu), // send a payload to the client
+        br=(g,t,bu,ex)=>g&&g.cl.forEach(cl=>cl!=ex&&_pl(cl,t,bu)), // broadcast a packet to all clients a game
+        i=b[0]?3:1; // the current index depending on whether or not it has a nonce
+	[1,8,12].includes(b[0])&&send([10,b[1],b[2],255]); // acknowlege reliable packets
+    b[0]==8?c.id=true:b[0]==9&&(c.d||d(),cl[f]=0); // handle hello and disconnect packets
+    if(b[0]<2)while(i<b.byteLength){ // handle normal packets
+        let l=b[i]<<8|b[i+1], // length of payload
+			t=b[i+2], // payload tag
+			p=b.slice(i+3,i+3+l); // payload data
+        t==0&&( // create game request
+			co=v4p()<<24|v4p()<<16|v4p()<<8|v4p(), // generate a random 4 letter code
+			g[co]={h:-1,s:0,cl:[]}, // create the game, with { h: host, s: state, cl: clients }
+			pl(0,wi(co))); // send code to client
+        t==1&&( // join game request
+			co=p.readInt32LE(0), // read code
+			(ga=g[co])? // game exists?
+				ga.s!=1?( // game started?
+					ga.h==-1?ga.h=c.i:0, // set host if no host
+					c.g=co, // update the clients current game
+					ba=[...wi(co),...wi(c.i),...wi(ga.h)], // base payload that join game & joined game can extend from
+					br(ga,1,ba,c), // broadcast join game to all clients in game
+					pl(7,[...ba,...pa(ga.cl.length), // send joined game to joining client
+						...ga.cl.map(c=>[...pa(c.i)]).flat()]), // write all client IDs as packed uint32s
+					ga.cl.push(c)) // add client to game
+				:pl(1,[,,,2]) // join error: game started
+			:pl(1,[,,,3])); // join error: game not found
+		t>1&&( // any other payload	
+			br(g[c.g],t,p, // broadcast every other payload
+				...(t==5||t==6?[c]:[]))); // dont broadcast to sender if the payload is gamedata or gamedata
+        i+=3+l; // skip payload to read next payload
     }
-    const rpacked=(buf,offs=0)=>{
-        let out = 0, doread = true, i = 0;
-        while (doread) {
-            const b = buf.readUInt8(offs+i);
-            doread = false;
-            if (b & 0x80) {
-                b ^= 0x80;
-                doread = true;
-            }
-            out |= b << (i * 7);
-            i++;
-        }
-        return [out,i];
-    }
-    const rem=(client)=>{
-        if (client.room) {
-            const t="0100000d000400000000000000000000000000";
-            const room=rooms[client.room];
-            const code=client.room;
-            client.room=null;
-            if(!room)
-                return;
-            for (let i = 0; i < room.clients.length;i++){
-                const c=room.clients[i];
-                if(c.id===client.id){
-                    room.clients.splice(i,1);
-                    i--;
-                }else{
-                    const write=Buffer.from(t,"hex");
-                    write.writeUInt16BE(++c.nonce,1);
-                    write.writeInt32LE(code,6);
-                    write.writeUInt32LE(client.id,10);
-                    while(room.host===client.id)room.host=room.clients[Math.floor(Math.random()*room.clients.length)].id;
-                    write.writeUInt32LE(room.host,14);
-                    write.writeUInt8(0,15);
-                    send(write,c.remote);
-                }
-            }
-            events.emit("remove",client,room);
-        }
-    }
-    const gen = ()=>[0,0,0,0,0,0].map(_=>String.fromCharCode(65+Math.floor(Math.random()*26))).join("");
-    function readPayload(client, tag, buf) {
-        switch (tag) {
-            case 0: {
-                let i = 0;
-                while (buf.readUInt8(i)>=0x80&&i<4) i++;
-                if (i>=4)return;
-                const max_players = buf.readUInt8(i + 2);
-                const code = code2int(gen());
-                const write = Buffer.from("01000004000000000000", "hex");
-                write.writeUInt16BE(++client.nonce, 1);
-                write.writeInt32LE(code, 6);
-                rooms[code] = { code, clients: [], host: -1, max: max_players, started: false };
-                send(write, client.remote);
-                events.emit("create", client, rooms[code]);
-                break;
-            }
-            case 1: {
-                const code = buf.readInt32LE(0);
-                const room = rooms[code];
-                if (room) {
-                    if (room.started)
-                        return joinerr(client, 2);
-                    if (room.clients.length >= room.max)
-                        return joinerr(client, 1);
-                    for (let i=0; i<room.clients.length; i++) {
-                        const write = Buffer.from("0100000c0001000000000000000000000000", "hex");
-                        const c=room.clients[i];
-                        write.writeUInt16BE(++c.nonce, 1);
-                        write.writeInt32LE(code, 6);
-                        write.writeUInt32LE(client.id, 10);
-                        write.writeUInt32LE(room.host, 14);
-                        send(write,c.remote);
-                    }
-                    if(room.host===-1)room.host=client.id;
-                    const write = Buffer.from("01000000000700000000000000000000000000" + room.clients.map(_=>"00".repeat(wpacked(Buffer.alloc(5),_.id))).join(""),"hex");
-                    write.writeUInt16LE(write.byteLength-6,3);
-                    write.writeUInt16BE(++client.nonce, 1);
-                    write.writeInt32LE(code, 6);
-                    write.writeUInt32LE(client.id, 10);
-                    write.writeUInt32LE(room.host, 14);
-                    let offset=18;
-                    offset+=wpacked(write,room.clients.length,offset);
-                    for (let i = 0; i < room.clients.length; i++) {
-                        offset+=wpacked(write,room.clients[i].id,offset);
-                    }
-                    room.clients.push(client);
-                    client.room=code;
-                    send(write,client.remote);
-                    events.emit("join",client,room);
-                } else return disconnect(client,3);
-                break;
-            }
-        }
-        const code = buf.readInt32LE(0)||client.room;
-        const room = rooms[code];
-        if (!room || !room.clients.find(c=>c.id===client.id))
-            return;
-
-        const clone=c=>{
-            const rebuild=Buffer.from("010000000000" + "00".repeat(buf.byteLength),"hex");
-            rebuild.writeUInt16BE(++c.nonce,1);
-            rebuild.writeUInt16LE(buf.byteLength,3);
-            rebuild.writeUInt8(tag,5);
-            buf.copy(rebuild,6,0);
-            return rebuild;
-        }
-
-        const broadcast=(b=false)=>{
-            for (let i=0;i<room.clients.length;i++){
-                const c=room.clients[i];
-                if(!c||(c.id===client.id&&!b))continue;
-                send(clone(c),c.remote);
-            }
-        }
-        
-        switch (tag) {
-            case 2: {
-                if (room.host===client.id){
-                    room.started=true;
-                    broadcast(true);
-                    events.emit("start",room);
-                }
-                break;
-            }
-            case 4: {
-                if (room.host===client.id) {
-                    const removed = buf.readUInt32LE(4);
-                    const reason=buf.readUInt8(8);
-                    const client = room.clients.findIndex(c=>c.id===removed);
-                    if (!room.clients[client])return;
-                    room.clients[client].room=null;
-                    disconnect([room.clients[client]],reason);
-                    room.clients.splice(room.clients[client],1);
-                    broadcast();
-                }
-                break;
-            }
-            case 5:
-            case 6: {
-                let recipid;
-                if (tag===6)recipid=rpacked(buf,4)[0];
-                const recip=room.clients.find(c=>c.id===recipid);
-                if(recip){
-                    const rebuild=Buffer.from("010000000000" + "00".repeat(buf.byteLength),"hex");
-                    rebuild.writeUInt16BE(++recip.nonce,1);
-                    rebuild.writeUInt16LE(buf.byteLength,3);
-                    rebuild.writeUInt8(6,5);
-                    buf.copy(rebuild,6,0);
-                    send(rebuild,recip.remote);
-                } else {
-                    broadcast();
-                }
-                break;
-            }
-            case 8:
-                if (room.host===client.id){
-                    room.started=false;
-                    broadcast(true);
-                }
-                break;
-            case 11: {
-                const kickedid=buf.readUInt32LE(4);
-                const b=buf.readUInt8(8);
-                const client = room.clients.find(c=>c.id===kickedid);
-                if (!client)return;
-                disconnect(client,6+!b);
-                break;
-            }
-            case 12:
-                const recipid=buf.readUInt32LE(4);
-                const recip=room.clients.find(c=>c.id===recipid);
-                if (recip) send(clone(recip),recip.remote);
-                break;
-        }
-    }
-    socket.on("message", (buf, remote) => {
-        let client = clients.get(remote.address + ":" + remote.port);
-        if (!client) {
-            incr_clientid = incr_clientid > 2 ** 32 - 1 ? 1 : incr_clientid + 1;
-            client = {remote,id:incr_clientid,identifed: false,disconnected: false,nonce: 1,room: null,fmt:incr_clientid+" ("+remote.address+":"+remote.port+")"};
-            clients.set(remote.address + ":" + remote.port, client);
-            events.emit("client", client);
-        }
-        const op = buf.readUInt8(0);
-        switch (op) {
-            case 8: {
-                const nonce = buf.readUInt16BE(1);
-                ack(client,nonce);
-                const version = buf.readUInt32LE(4);
-                let username = "";
-                let i = 8;
-                while (buf.readUInt8(i)>=0x80&&i<12) i++; // Skip name length
-                i++
-                if (i>=13)return;
-                while (i++ < buf.byteLength) username += String.fromCharCode(buf.readUInt8(i - 1));
-                client.identified=true;
-                events.emit("identify", client, username, version);
-                break;
-            }
-            case 9:
-                if (!client.disconnected){
-                    disconnect(client,null);
-                }
-                clients.delete(client.remote.address+":"+client.remote.port);
-                break;
-            case 12:
-                const nonce = buf.readUInt16BE(1);
-                ack(client,nonce);
-                break;
-        }
-        if (!client.identified) return;
-        switch (op) {
-            case 0: {
-                let i = 1;
-                while (i < buf.byteLength) {
-                    const length = buf.readUInt16LE(i);
-                    const tag = buf.readUInt8(i + 2);
-                    const pbuf = buf.slice(i + 3, i + 3 + length);
-                    i += 3 + length;
-                    readPayload(client, tag, pbuf);
-                }
-                break;
-            }
-            case 1:
-                const nonce = buf.readUInt16BE(1);
-                ack(client,nonce);
-                let i = 3;
-                while (i < buf.byteLength) {
-                    const length = buf.readUInt16LE(i);
-                    const tag = buf.readUInt8(i + 2);
-                    const pbuf = buf.slice(i + 3, i + 3 + length);
-                    i += 3 + length;
-                    readPayload(client, tag, pbuf);
-                }
-                break;
-        }
-    });
-    events.on("graceful", async ()=>{
-        for(let [,cl] of clients) {
-            await disconnect(cl,0);
-        }
-        socket.close(() => {
-            events.emit("shutdown");
-        });
-    });
-    return events;
-}
+}).bind(22023);
