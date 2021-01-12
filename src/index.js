@@ -48,7 +48,7 @@ s.on("message",(b,r)=>{
 			:pl(1,[,,,3])); // join error: game not found
 		t>1&&( // any other payload	
 			br(g[c.g],t,p, // broadcast every other payload
-				...(t==5||t==6?[c]:[]))); // dont broadcast to sender if the payload is gamedata or gamedata
+				...(t==5||t==6?[c]:[]))); // dont broadcast to sender if the payload is gamedata
         i+=3+l; // skip payload to read next payload
     }
 }).bind(22023);
